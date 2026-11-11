@@ -2,6 +2,10 @@ package com.example.ancientbeam;
 
 import net.minecraft.block.Blocks;
 import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.sound.PositionedSoundInstance;
+import net.minecraft.sound.SoundEvent;
+import net.minecraft.sound.SoundEvents;
+import net.minecraft.util.Identifier;
 import net.minecraft.client.world.ClientWorld;
 import net.minecraft.registry.tag.FluidTags;
 import net.minecraft.text.Text;
@@ -18,6 +22,8 @@ public class Debris {
     public static final int LAVA_WARN = 40; // số block lava trong hộp 11x11x11 quanh người chơi
 
     public static boolean enabled = true;
+    public static boolean sound = true;          // phím L bật/tắt
+    public static final float SOUND_VOLUME = 1.0f;
     public static int mined = 0;
     public static int seen = 0;
     public static boolean lavaNear = false;
@@ -152,7 +158,24 @@ public class Debris {
             }
             if (fresh.size() > 5) sb.append("...");
             mc.player.sendMessage(Text.literal(sb.toString()), false);
+            if (sound) playSound(mc);
         }
+    }
+
+
+    private static final Identifier CUSTOM_FILE = Identifier.of("ancientbeam", "sounds/ding.ogg");
+    private static final SoundEvent CUSTOM_SOUND = SoundEvent.of(Identifier.of("ancientbeam", "debris_found"));
+
+    private static void playSound(MinecraftClient mc) {
+        // Có file ding.ogg của bạn trong mod -> dùng file đó, không thì dùng tiếng mặc định của Minecraft
+        if (mc.getResourceManager().getResource(CUSTOM_FILE).isPresent()) {
+            mc.getSoundManager().play(PositionedSoundInstance.master(CUSTOM_SOUND, 1.0f, SOUND_VOLUME));
+            return;
+        }
+        boolean anyExposed = false;
+        for (Cluster c : clusters) if (!c.buried) { anyExposed = true; break; }
+        float pitch = anyExposed ? 1.6f : 1.0f;
+        mc.getSoundManager().play(PositionedSoundInstance.master(SoundEvents.ENTITY_EXPERIENCE_ORB_PICKUP, pitch, SOUND_VOLUME));
     }
 
     private static void lava(MinecraftClient mc) {
