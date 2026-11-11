@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "id": "ancientbeam",
+  "version": "${version}",
+  "name": "Ancient Debris ESP",
+  "description": "Tia xanh xuyen tuong + HUD tim ancient debris (netherite).",
+  "environment": "client",
+  "entrypoints": { "client": ["com.example.ancientbeam.AncientBeamClient"] },
+  "depends": { "fabricloader": ">=0.16.0", "minecraft": "~1.21.4", "java": ">=21", "fabric-api": "*" }
+}
