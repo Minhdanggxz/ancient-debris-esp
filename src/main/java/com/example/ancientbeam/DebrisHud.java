@@ -32,6 +32,15 @@ public class DebrisHud {
         panel(ctx, sw - stw - 4, 4, stw, 14);
         ctx.drawText(tr, stats, sw - stw, 7, TXT, false);
 
+        // cảnh báo lava: hiện kể cả khi không có debris nào
+        if (Debris.lavaNear) {
+            String w = "⚠ Gần hồ lava lớn";
+            int ww = tr.getWidth(w) + 16;
+            int wy = sh - 90;
+            panel(ctx, sw / 2 - ww / 2, wy, ww, 16);
+            ctx.drawText(tr, w, sw / 2 - ww / 2 + 8, wy + 4, 0xFFFFAA00, false);
+        }
+
         if (cl.isEmpty()) return;
 
         // MỤC TIÊU GẦN NHẤT
@@ -75,13 +84,5 @@ public class DebrisHud {
         panel(ctx, sw / 2 - bw / 2, by, bw, 16);
         ctx.drawText(tr, ban, sw / 2 - bw / 2 + 8, by + 4, TXT, false);
 
-        // cảnh báo lava
-        if (Debris.lavaNear) {
-            String w = "⚠ Gần hồ lava lớn";
-            int ww = tr.getWidth(w) + 16;
-            int wy = sh - 90;
-            panel(ctx, sw / 2 - ww / 2, wy, ww, 16);
-            ctx.drawText(tr, w, sw / 2 - ww / 2 + 8, wy + 4, 0xFFFFAA00, false);
-        }
     }
 }
