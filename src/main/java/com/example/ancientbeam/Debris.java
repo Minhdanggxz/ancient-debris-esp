@@ -27,6 +27,7 @@ public class Debris {
     public static int mined = 0;
     public static int seen = 0;
     public static boolean lavaNear = false;
+    public static Vec3d lavaPos = null; // block lava gần nhất (để chỉ hướng)
     public static final List<Cluster> clusters = new ArrayList<>();
 
     private static long selKey = Long.MIN_VALUE;
@@ -180,9 +181,20 @@ public class Debris {
 
     private static void lava(MinecraftClient mc) {
         BlockPos p = mc.player.getBlockPos();
+        Vec3d me = mc.player.getPos();
         int n = 0;
-        for (int x = -5; x <= 5; x++) for (int y = -5; y <= 5; y++) for (int z = -5; z <= 5; z++)
-            if (mc.world.getFluidState(p.add(x, y, z)).isIn(FluidTags.LAVA)) n++;
+        Vec3d nearest = null;
+        double best = Double.MAX_VALUE;
+        for (int x = -5; x <= 5; x++) for (int y = -5; y <= 5; y++) for (int z = -5; z <= 5; z++) {
+            BlockPos q = p.add(x, y, z);
+            if (mc.world.getFluidState(q).isIn(FluidTags.LAVA)) {
+                n++;
+                Vec3d c = Vec3d.ofCenter(q);
+                double d = c.squaredDistanceTo(me);
+                if (d < best) { best = d; nearest = c; }
+            }
+        }
         lavaNear = n >= LAVA_WARN;
+        lavaPos = lavaNear ? nearest : null;
     }
 }
