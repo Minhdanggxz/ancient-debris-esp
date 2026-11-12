@@ -19,6 +19,8 @@ import java.util.*;
 
 public class Debris {
     public static final int RADIUS = 256;
+    // vùng quét lava quanh người chơi: 25x15x25 (mỗi bên: X ±12, Y ±7, Z ±12)
+    public static final int LAVA_RX = 12, LAVA_RY = 7, LAVA_RZ = 12;
     public static final int LAVA_WARN = 40; // số block lava trong hộp 11x11x11 quanh người chơi
 
     public static boolean enabled = true;
@@ -185,7 +187,7 @@ public class Debris {
         int n = 0;
         Vec3d nearest = null;
         double best = Double.MAX_VALUE;
-        for (int x = -5; x <= 5; x++) for (int y = -5; y <= 5; y++) for (int z = -5; z <= 5; z++) {
+        for (int x = -LAVA_RX; x <= LAVA_RX; x++) for (int y = -LAVA_RY; y <= LAVA_RY; y++) for (int z = -LAVA_RZ; z <= LAVA_RZ; z++) {
             BlockPos q = p.add(x, y, z);
             if (mc.world.getFluidState(q).isIn(FluidTags.LAVA)) {
                 n++;
