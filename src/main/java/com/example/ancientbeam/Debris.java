@@ -19,8 +19,8 @@ import java.util.*;
 
 public class Debris {
     public static final int RADIUS = 256;
-    // vùng quét lava quanh người chơi: 25x15x25 (mỗi bên: X ±12, Y ±7, Z ±12)
-    public static final int LAVA_RX = 12, LAVA_RY = 7, LAVA_RZ = 12;
+    // vùng quét lava quanh người chơi: 41x15x41 (mỗi bên: X ±20, Y ±7, Z ±20)
+    public static final int LAVA_RX = 20, LAVA_RY = 7, LAVA_RZ = 20;
     public static final int LAVA_WARN = 40; // số block lava trong hộp 11x11x11 quanh người chơi
 
     public static boolean enabled = true;
@@ -29,7 +29,7 @@ public class Debris {
     public static int mined = 0;
     public static int seen = 0;
     public static boolean lavaNear = false;
-    public static Vec3d lavaPos = null; // block lava gần nhất (để chỉ hướng)
+    public static Vec3d lavaPos = null; // tâm vùng lava dày nhất (để chỉ hướng)
     public static final List<Cluster> clusters = new ArrayList<>();
 
     private static long selKey = Long.MIN_VALUE;
@@ -183,20 +183,27 @@ public class Debris {
 
     private static void lava(MinecraftClient mc) {
         BlockPos p = mc.player.getBlockPos();
-        Vec3d me = mc.player.getPos();
+        final int CELL = 5; // chia hộp thành các ô 5x5x5, mũi tên chỉ vào ô có nhiều lava nhất
+        int nx = (2 * LAVA_RX + 1 + CELL - 1) / CELL;
+        int ny = (2 * LAVA_RY + 1 + CELL - 1) / CELL;
+        int nz = (2 * LAVA_RZ + 1 + CELL - 1) / CELL;
+        int[] cnt = new int[nx * ny * nz];
+        double[] sx = new double[cnt.length], sy = new double[cnt.length], sz = new double[cnt.length];
         int n = 0;
-        Vec3d nearest = null;
-        double best = Double.MAX_VALUE;
         for (int x = -LAVA_RX; x <= LAVA_RX; x++) for (int y = -LAVA_RY; y <= LAVA_RY; y++) for (int z = -LAVA_RZ; z <= LAVA_RZ; z++) {
             BlockPos q = p.add(x, y, z);
-            if (mc.world.getFluidState(q).isIn(FluidTags.LAVA)) {
-                n++;
-                Vec3d c = Vec3d.ofCenter(q);
-                double d = c.squaredDistanceTo(me);
-                if (d < best) { best = d; nearest = c; }
-            }
+            if (!mc.world.getFluidState(q).isIn(FluidTags.LAVA)) continue;
+            n++;
+            int k = ((x + LAVA_RX) / CELL * ny + (y + LAVA_RY) / CELL) * nz + (z + LAVA_RZ) / CELL;
+            cnt[k]++;
+            sx[k] += q.getX() + 0.5; sy[k] += q.getY() + 0.5; sz[k] += q.getZ() + 0.5;
         }
         lavaNear = n >= LAVA_WARN;
-        lavaPos = lavaNear ? nearest : null;
+        lavaPos = null;
+        if (lavaNear) {
+            int best = 0;
+            for (int k = 1; k < cnt.length; k++) if (cnt[k] > cnt[best]) best = k;
+            if (cnt[best] > 0) lavaPos = new Vec3d(sx[best] / cnt[best], sy[best] / cnt[best], sz[best] / cnt[best]);
+        }
     }
-}
+                    }
