@@ -206,4 +206,4 @@ public class Debris {
             if (mc.world.getFluidState(p.add(x, y, z)).isIn(FluidTags.LAVA)) n++;
         lavaNear = n >= LAVA_WARN;
     }
-}
+    }
