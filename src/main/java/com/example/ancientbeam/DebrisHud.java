@@ -35,22 +35,6 @@ public class DebrisHud {
         // cảnh báo lava: hiện kể cả khi không có debris nào
         if (Debris.lavaNear) {
             String w = "⚠ Gần hồ lava lớn";
-            if (Debris.lavaPos != null) {
-                Vec3d lp = Debris.lavaPos;
-                Vec3d me = mc.player.getPos();
-                double ldx = lp.x - me.x, ldz = lp.z - me.z;
-                int ldy = (int) Math.round(lp.y - me.y);
-                String arrow;
-                if (Math.hypot(ldx, ldz) < 1.5) {
-                    arrow = ldy < 0 ? "↓" : "↑";
-                } else {
-                    float lyaw = (float) (Math.atan2(-ldx, ldz) * 180.0 / Math.PI);
-                    float lrel = MathHelper.wrapDegrees(lyaw - mc.player.getYaw());
-                    arrow = ARROWS[Math.floorMod(Math.round(lrel / 45f), 8)];
-                }
-                String lh = ldy > 2 ? "cao hơn " + ldy : ldy < -2 ? "thấp hơn " + (-ldy) : "ngang tầm";
-                w = "⚠ Gần hồ lava lớn  " + arrow + " " + (int) lp.distanceTo(me) + "m (" + lh + ")";
-            }
             int ww = tr.getWidth(w) + 16;
             int wy = sh - 90;
             panel(ctx, sw / 2 - ww / 2, wy, ww, 16);
