@@ -1,111 +1,209 @@
 package com.example.ancientbeam;
 
-import com.mojang.blaze3d.systems.RenderSystem;
-import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderContext;
+import net.minecraft.block.Blocks;
 import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.font.TextRenderer;
-import net.minecraft.client.gl.ShaderProgramKeys;
-import net.minecraft.client.render.*;
-import net.minecraft.client.util.math.MatrixStack;
+import net.minecraft.client.sound.PositionedSoundInstance;
+import net.minecraft.sound.SoundEvent;
+import net.minecraft.sound.SoundEvents;
+import net.minecraft.util.Identifier;
+import net.minecraft.client.world.ClientWorld;
+import net.minecraft.registry.tag.FluidTags;
+import net.minecraft.text.Text;
 import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.MathHelper;
+import net.minecraft.util.math.Direction;
 import net.minecraft.util.math.Vec3d;
-import org.joml.Matrix4f;
+import net.minecraft.world.chunk.ChunkSection;
+import net.minecraft.world.chunk.WorldChunk;
 
-import java.util.List;
+import java.util.*;
 
-public class DebrisRenderer {
-    public static void render(WorldRenderContext ctx) {
-        MinecraftClient mc = MinecraftClient.getInstance();
-        if (!Debris.enabled || mc.player == null || Debris.clusters.isEmpty()) return;
+public class Debris {
+    public static final int RADIUS = 256;
+    public static final int LAVA_WARN = 40; // số block lava trong hộp 11x11x11 quanh người chơi
 
-        MatrixStack ms = ctx.matrixStack();
-        if (ms == null) { ms = new MatrixStack(); ms.multiplyPositionMatrix(ctx.positionMatrix()); }
-        Camera cam = ctx.camera();
-        Vec3d c0 = cam.getPos();
-        Matrix4f m = ms.peek().getPositionMatrix();
-        Debris.Cluster sel = Debris.selected();
-        List<Debris.Cluster> cl = Debris.clusters;
+    public static boolean enabled = true;
+    public static boolean sound = true;          // phím L bật/tắt
+    public static final float SOUND_VOLUME = 1.0f;
+    public static int mined = 0;
+    public static int seen = 0;
+    public static boolean lavaNear = false;
+    public static final List<Cluster> clusters = new ArrayList<>();
+    public static final List<BlockPos> fakes = new ArrayList<>(); // debris giả (anti-xray): kề quặng thạch anh/vàng nether
 
-        RenderSystem.setShader(ShaderProgramKeys.POSITION_COLOR);
-        RenderSystem.disableDepthTest();
-        RenderSystem.enableBlend();
-        RenderSystem.defaultBlendFunc();
-        RenderSystem.disableCull();
+    private static long selKey = Long.MIN_VALUE;
+    private static final Set<Long> known = new HashSet<>();
+    private static final Set<Long> notified = new HashSet<>();
+    private static ClientWorld lastWorld;
+    private static int tick = 0;
 
-        // --- tia (beam) + viền block, xuyên tường ---
-        BufferBuilder q = Tessellator.getInstance().begin(VertexFormat.DrawMode.QUADS, VertexFormats.POSITION_COLOR);
-        int drawn = 0;
-        for (Debris.Cluster c : cl) {
-            boolean s = c == sel;
-            float a = s ? 0.55f : 0.28f;
-            double cx = c.center.x - c0.x, cy = c.center.y - c0.y, cz = c.center.z - c0.z;
-            box(q, m, (float) cx - 0.12f, (float) cy, (float) cz - 0.12f,
-                    (float) cx + 0.12f, (float) cy + 100f, (float) cz + 0.12f, 0.2f, 0.55f, 1f, a);
-            for (BlockPos b : c.blocks) {
-                if (drawn++ > 400) break;
-                float x = (float) (b.getX() - c0.x), y = (float) (b.getY() - c0.y), z = (float) (b.getZ() - c0.z);
-                box(q, m, x - 0.01f, y - 0.01f, z - 0.01f, x + 1.01f, y + 1.01f, z + 1.01f, 0.3f, 0.85f, 1f, s ? 0.4f : 0.25f);
+    public static class Cluster {
+        public final List<BlockPos> blocks;
+        public final Vec3d center;
+        public final boolean buried;
+        public final long key;
+        public double dist;
+
+        Cluster(List<BlockPos> blocks, ClientWorld w) {
+            this.blocks = blocks;
+            double x = 0, y = 0, z = 0;
+            long min = Long.MAX_VALUE;
+            boolean exposed = false;
+            for (BlockPos b : blocks) {
+                x += b.getX() + 0.5; y += b.getY() + 0.5; z += b.getZ() + 0.5;
+                min = Math.min(min, b.asLong());
+                if (!exposed) for (Direction d : Direction.values())
+                    if (w.getBlockState(b.offset(d)).isAir()) { exposed = true; break; }
+            }
+            int n = blocks.size();
+            this.center = new Vec3d(x / n, y / n, z / n);
+            this.buried = !exposed;
+            this.key = min;
+        }
+    }
+
+    public static Cluster selected() {
+        if (clusters.isEmpty()) return null;
+        for (Cluster c : clusters) if (c.key == selKey) return c;
+        selKey = clusters.get(0).key;
+        return clusters.get(0);
+    }
+
+    public static void cycle() {
+        if (clusters.isEmpty()) return;
+        int i = clusters.indexOf(selected());
+        selKey = clusters.get((i + 1) % clusters.size()).key;
+    }
+
+    public static void tick(MinecraftClient mc) {
+        if (mc.world == null || mc.player == null) { lastWorld = null; return; }
+        if (mc.world != lastWorld) {
+            lastWorld = mc.world;
+            known.clear(); notified.clear(); clusters.clear(); fakes.clear();
+            mined = 0; seen = 0; selKey = Long.MIN_VALUE;
+        }
+        if (!enabled) return;
+        tick++;
+        if (tick % 40 == 1) scan(mc);
+        if (tick % 20 == 0) lava(mc);
+        Vec3d pp = mc.player.getPos();
+        for (Cluster c : clusters) c.dist = c.center.distanceTo(pp);
+        clusters.sort(Comparator.comparingDouble(c -> c.dist));
+    }
+
+    private static void scan(MinecraftClient mc) {
+        ClientWorld w = mc.world;
+        Vec3d pp = mc.player.getPos();
+        int pcx = mc.player.getBlockX() >> 4, pcz = mc.player.getBlockZ() >> 4;
+        int cr = (RADIUS >> 4) + 1;
+        double r2 = (double) RADIUS * RADIUS;
+        Set<Long> found = new HashSet<>();
+
+        for (int cx = pcx - cr; cx <= pcx + cr; cx++) {
+            for (int cz = pcz - cr; cz <= pcz + cr; cz++) {
+                WorldChunk ch = w.getChunkManager().getWorldChunk(cx, cz);
+                if (ch == null) continue;
+                ChunkSection[] secs = ch.getSectionArray();
+                for (int i = 0; i < secs.length; i++) {
+                    ChunkSection s = secs[i];
+                    if (s == null || s.isEmpty()) continue;
+                    if (!s.hasAny(st -> st.isOf(Blocks.ANCIENT_DEBRIS))) continue;
+                    int baseY = ch.getBottomY() + i * 16;
+                    for (int x = 0; x < 16; x++) for (int y = 0; y < 16; y++) for (int z = 0; z < 16; z++) {
+                        if (!s.getBlockState(x, y, z).isOf(Blocks.ANCIENT_DEBRIS)) continue;
+                        BlockPos p = new BlockPos(cx * 16 + x, baseY + y, cz * 16 + z);
+                        if (p.toCenterPos().squaredDistanceTo(pp) <= r2) found.add(p.asLong());
+                    }
+                }
             }
         }
-        BufferRenderer.drawWithGlobalProgram(q.end());
 
-        // --- tracer ---
-        RenderSystem.lineWidth(2f);
-        BufferBuilder l = Tessellator.getInstance().begin(VertexFormat.DrawMode.DEBUG_LINES, VertexFormats.POSITION_COLOR);
-        Vec3d look = mc.player.getRotationVec(1f).multiply(0.4);
+        // tách debris giả: có mặt kề (6 hướng, không tính chéo) là quặng thạch anh nether hoặc quặng vàng nether
+        fakes.clear();
+        Iterator<Long> fit = found.iterator();
+        while (fit.hasNext()) {
+            BlockPos fp = BlockPos.fromLong(fit.next());
+            if (isFake(w, fp)) {
+                fakes.add(fp);
+                fit.remove();
+            }
+        }
+
+        // đếm block đã đào: biến mất khỏi danh sách trong khi chunk vẫn load và block không còn là debris
+        for (long k : known) {
+            if (found.contains(k)) continue;
+            BlockPos p = BlockPos.fromLong(k);
+            if (w.getChunkManager().getWorldChunk(p.getX() >> 4, p.getZ() >> 4) != null
+                    && !w.getBlockState(p).isOf(Blocks.ANCIENT_DEBRIS)) mined++;
+        }
+        known.clear();
+        known.addAll(found);
+        seen = found.size();
+
+        // gom cụm (26 hướng kề nhau)
+        clusters.clear();
+        Set<Long> visited = new HashSet<>();
+        for (long k : found) {
+            if (!visited.add(k)) continue;
+            List<BlockPos> blocks = new ArrayList<>();
+            ArrayDeque<Long> q = new ArrayDeque<>();
+            q.add(k);
+            while (!q.isEmpty()) {
+                BlockPos b = BlockPos.fromLong(q.poll());
+                blocks.add(b);
+                for (int dx = -1; dx <= 1; dx++) for (int dy = -1; dy <= 1; dy++) for (int dz = -1; dz <= 1; dz++) {
+                    if (dx == 0 && dy == 0 && dz == 0) continue;
+                    long n = b.add(dx, dy, dz).asLong();
+                    if (found.contains(n) && visited.add(n)) q.add(n);
+                }
+            }
+            clusters.add(new Cluster(blocks, w));
+        }
+
+        // thông báo chat khi có debris mới
+        List<BlockPos> fresh = new ArrayList<>();
+        for (long k : found) if (notified.add(k)) fresh.add(BlockPos.fromLong(k));
+        if (!fresh.isEmpty()) {
+            StringBuilder sb = new StringBuilder("§b[AncientBeam] §fTìm thấy §e" + fresh.size() + "§f ancient debris mới: ");
+            for (int i = 0; i < Math.min(5, fresh.size()); i++) {
+                BlockPos p = fresh.get(i);
+                sb.append("§a").append(p.getX()).append(' ').append(p.getY()).append(' ').append(p.getZ()).append("§f; ");
+            }
+            if (fresh.size() > 5) sb.append("...");
+            mc.player.sendMessage(Text.literal(sb.toString()), false);
+            if (sound) playSound(mc);
+        }
+    }
+
+
+    private static final Identifier CUSTOM_FILE = Identifier.of("ancientbeam", "sounds/ding.ogg");
+    private static final SoundEvent CUSTOM_SOUND = SoundEvent.of(Identifier.of("ancientbeam", "debris_found"));
+
+    private static void playSound(MinecraftClient mc) {
+        // Có file ding.ogg của bạn trong mod -> dùng file đó, không thì dùng tiếng mặc định của Minecraft
+        if (mc.getResourceManager().getResource(CUSTOM_FILE).isPresent()) {
+            mc.getSoundManager().play(PositionedSoundInstance.master(CUSTOM_SOUND, 1.0f, SOUND_VOLUME));
+            return;
+        }
+        boolean anyExposed = false;
+        for (Cluster c : clusters) if (!c.buried) { anyExposed = true; break; }
+        float pitch = anyExposed ? 1.6f : 1.0f;
+        mc.getSoundManager().play(PositionedSoundInstance.master(SoundEvents.ENTITY_EXPERIENCE_ORB_PICKUP, pitch, SOUND_VOLUME));
+    }
+
+
+    private static boolean isFake(ClientWorld w, BlockPos p) {
+        for (Direction d : Direction.values()) {
+            BlockPos n = p.offset(d);
+            if (w.getBlockState(n).isOf(Blocks.NETHER_QUARTZ_ORE) || w.getBlockState(n).isOf(Blocks.NETHER_GOLD_ORE)) return true;
+        }
+        return false;
+    }
+
+    private static void lava(MinecraftClient mc) {
+        BlockPos p = mc.player.getBlockPos();
         int n = 0;
-        for (Debris.Cluster c : cl) {
-            if (n++ >= 8) break;
-            boolean s = c == sel;
-            float a = s ? 1f : 0.35f;
-            l.vertex(m, (float) look.x, (float) look.y, (float) look.z).color(0.3f, 0.8f, 1f, a);
-            l.vertex(m, (float) (c.center.x - c0.x), (float) (c.center.y - c0.y), (float) (c.center.z - c0.z)).color(0.3f, 0.8f, 1f, a);
-        }
-        BufferRenderer.drawWithGlobalProgram(l.end());
-
-        // --- nhãn khoảng cách ---
-        VertexConsumerProvider.Immediate imm = mc.getBufferBuilders().getEntityVertexConsumers();
-        TextRenderer tr = mc.textRenderer;
-        n = 0;
-        for (Debris.Cluster c : cl) {
-            if (n++ >= 8) break;
-            String t = (int) c.dist + "m";
-            double rx = c.center.x - c0.x, ry = c.center.y - c0.y + 1.5, rz = c.center.z - c0.z;
-            float s = 0.025f * MathHelper.clamp((float) c.dist / 8f, 1f, 14f);
-            ms.push();
-            ms.translate(rx, ry, rz);
-            ms.multiply(cam.getRotation());
-            ms.scale(s, -s, s);
-            tr.draw(t, -tr.getWidth(t) / 2f, 0, c == sel ? 0xFF55FFFF : 0xFFFFFF55, false,
-                    ms.peek().getPositionMatrix(), imm, TextRenderer.TextLayerType.SEE_THROUGH, 0, 0xF000F0);
-            ms.pop();
-        }
-        imm.draw();
-
-        RenderSystem.lineWidth(1f);
-        RenderSystem.enableCull();
-        RenderSystem.disableBlend();
-        RenderSystem.enableDepthTest();
+        for (int x = -5; x <= 5; x++) for (int y = -5; y <= 5; y++) for (int z = -5; z <= 5; z++)
+            if (mc.world.getFluidState(p.add(x, y, z)).isIn(FluidTags.LAVA)) n++;
+        lavaNear = n >= LAVA_WARN;
     }
-
-    private static void box(BufferBuilder b, Matrix4f m, float x0, float y0, float z0, float x1, float y1, float z1,
-                            float r, float g, float bl, float a) {
-        quad(b, m, x0, y0, z0, x1, y0, z0, x1, y0, z1, x0, y0, z1, r, g, bl, a); // dưới
-        quad(b, m, x0, y1, z0, x1, y1, z0, x1, y1, z1, x0, y1, z1, r, g, bl, a); // trên
-        quad(b, m, x0, y0, z0, x1, y0, z0, x1, y1, z0, x0, y1, z0, r, g, bl, a); // bắc
-        quad(b, m, x0, y0, z1, x1, y0, z1, x1, y1, z1, x0, y1, z1, r, g, bl, a); // nam
-        quad(b, m, x0, y0, z0, x0, y0, z1, x0, y1, z1, x0, y1, z0, r, g, bl, a); // tây
-        quad(b, m, x1, y0, z0, x1, y0, z1, x1, y1, z1, x1, y1, z0, r, g, bl, a); // đông
-    }
-
-    private static void quad(BufferBuilder b, Matrix4f m,
-                             float ax, float ay, float az, float bx, float by, float bz,
-                             float cx, float cy, float cz, float dx, float dy, float dz,
-                             float r, float g, float bl, float a) {
-        b.vertex(m, ax, ay, az).color(r, g, bl, a);
-        b.vertex(m, bx, by, bz).color(r, g, bl, a);
-        b.vertex(m, cx, cy, cz).color(r, g, bl, a);
-        b.vertex(m, dx, dy, dz).color(r, g, bl, a);
-    }
-}
+            }
