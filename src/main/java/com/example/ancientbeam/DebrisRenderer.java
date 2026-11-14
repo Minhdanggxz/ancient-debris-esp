@@ -55,8 +55,7 @@ public class DebrisRenderer {
         }
         BufferRenderer.drawWithGlobalProgram(q.end());
 
-        if (!cl.isEmpty()) {
-        // --- tracer ---
+        // --- tracer (xanh: debris thật, đỏ: nghi giả) ---
         RenderSystem.lineWidth(2f);
         BufferBuilder l = Tessellator.getInstance().begin(VertexFormat.DrawMode.DEBUG_LINES, VertexFormats.POSITION_COLOR);
         Vec3d look = mc.player.getRotationVec(1f).multiply(0.4);
@@ -68,8 +67,15 @@ public class DebrisRenderer {
             l.vertex(m, (float) look.x, (float) look.y, (float) look.z).color(0.3f, 0.8f, 1f, a);
             l.vertex(m, (float) (c.center.x - c0.x), (float) (c.center.y - c0.y), (float) (c.center.z - c0.z)).color(0.3f, 0.8f, 1f, a);
         }
+        int fn = 0;
+        for (BlockPos fb : Debris.fakes) {
+            if (fn++ >= 8) break;
+            l.vertex(m, (float) look.x, (float) look.y, (float) look.z).color(1f, 0.15f, 0.15f, 0.9f);
+            l.vertex(m, (float) (fb.getX() + 0.5 - c0.x), (float) (fb.getY() + 0.5 - c0.y), (float) (fb.getZ() + 0.5 - c0.z)).color(1f, 0.15f, 0.15f, 0.9f);
+        }
         BufferRenderer.drawWithGlobalProgram(l.end());
 
+        if (!cl.isEmpty()) {
         // --- nhãn khoảng cách ---
         VertexConsumerProvider.Immediate imm = mc.getBufferBuilders().getEntityVertexConsumers();
         TextRenderer tr = mc.textRenderer;
@@ -115,4 +121,4 @@ public class DebrisRenderer {
         b.vertex(m, cx, cy, cz).color(r, g, bl, a);
         b.vertex(m, dx, dy, dz).color(r, g, bl, a);
     }
-                                                                  }
+}
