@@ -19,8 +19,6 @@ import java.util.*;
 
 public class Debris {
     public static final int RADIUS = 256;
-    // vùng quét lava quanh người chơi: 41x15x41 (mỗi bên: X ±20, Y ±7, Z ±20)
-    public static final int LAVA_RX = 20, LAVA_RY = 7, LAVA_RZ = 20;
     public static final int LAVA_WARN = 40; // số block lava trong hộp 11x11x11 quanh người chơi
 
     public static boolean enabled = true;
@@ -29,8 +27,8 @@ public class Debris {
     public static int mined = 0;
     public static int seen = 0;
     public static boolean lavaNear = false;
-    public static Vec3d lavaPos = null; // tâm vùng lava dày nhất (để chỉ hướng)
     public static final List<Cluster> clusters = new ArrayList<>();
+    public static final List<BlockPos> fakes = new ArrayList<>(); // debris giả (anti-xray): kề quặng thạch anh/vàng nether
 
     private static long selKey = Long.MIN_VALUE;
     private static final Set<Long> known = new HashSet<>();
@@ -80,7 +78,7 @@ public class Debris {
         if (mc.world == null || mc.player == null) { lastWorld = null; return; }
         if (mc.world != lastWorld) {
             lastWorld = mc.world;
-            known.clear(); notified.clear(); clusters.clear();
+            known.clear(); notified.clear(); clusters.clear(); fakes.clear();
             mined = 0; seen = 0; selKey = Long.MIN_VALUE;
         }
         if (!enabled) return;
@@ -116,6 +114,17 @@ public class Debris {
                         if (p.toCenterPos().squaredDistanceTo(pp) <= r2) found.add(p.asLong());
                     }
                 }
+            }
+        }
+
+        // tách debris giả: có mặt kề (6 hướng, không tính chéo) là quặng thạch anh nether hoặc quặng vàng nether
+        fakes.clear();
+        Iterator<Long> fit = found.iterator();
+        while (fit.hasNext()) {
+            BlockPos fp = BlockPos.fromLong(fit.next());
+            if (isFake(w, fp)) {
+                fakes.add(fp);
+                fit.remove();
             }
         }
 
@@ -181,29 +190,20 @@ public class Debris {
         mc.getSoundManager().play(PositionedSoundInstance.master(SoundEvents.ENTITY_EXPERIENCE_ORB_PICKUP, pitch, SOUND_VOLUME));
     }
 
+
+    private static boolean isFake(ClientWorld w, BlockPos p) {
+        for (Direction d : Direction.values()) {
+            BlockPos n = p.offset(d);
+            if (w.getBlockState(n).isOf(Blocks.NETHER_QUARTZ_ORE) || w.getBlockState(n).isOf(Blocks.NETHER_GOLD_ORE)) return true;
+        }
+        return false;
+    }
+
     private static void lava(MinecraftClient mc) {
         BlockPos p = mc.player.getBlockPos();
-        final int CELL = 5; // chia hộp thành các ô 5x5x5, mũi tên chỉ vào ô có nhiều lava nhất
-        int nx = (2 * LAVA_RX + 1 + CELL - 1) / CELL;
-        int ny = (2 * LAVA_RY + 1 + CELL - 1) / CELL;
-        int nz = (2 * LAVA_RZ + 1 + CELL - 1) / CELL;
-        int[] cnt = new int[nx * ny * nz];
-        double[] sx = new double[cnt.length], sy = new double[cnt.length], sz = new double[cnt.length];
         int n = 0;
-        for (int x = -LAVA_RX; x <= LAVA_RX; x++) for (int y = -LAVA_RY; y <= LAVA_RY; y++) for (int z = -LAVA_RZ; z <= LAVA_RZ; z++) {
-            BlockPos q = p.add(x, y, z);
-            if (!mc.world.getFluidState(q).isIn(FluidTags.LAVA)) continue;
-            n++;
-            int k = ((x + LAVA_RX) / CELL * ny + (y + LAVA_RY) / CELL) * nz + (z + LAVA_RZ) / CELL;
-            cnt[k]++;
-            sx[k] += q.getX() + 0.5; sy[k] += q.getY() + 0.5; sz[k] += q.getZ() + 0.5;
-        }
+        for (int x = -5; x <= 5; x++) for (int y = -5; y <= 5; y++) for (int z = -5; z <= 5; z++)
+            if (mc.world.getFluidState(p.add(x, y, z)).isIn(FluidTags.LAVA)) n++;
         lavaNear = n >= LAVA_WARN;
-        lavaPos = null;
-        if (lavaNear) {
-            int best = 0;
-            for (int k = 1; k < cnt.length; k++) if (cnt[k] > cnt[best]) best = k;
-            if (cnt[best] > 0) lavaPos = new Vec3d(sx[best] / cnt[best], sy[best] / cnt[best], sz[best] / cnt[best]);
-        }
     }
-                    }
+}
