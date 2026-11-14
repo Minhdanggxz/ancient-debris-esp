@@ -4,6 +4,7 @@ import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.font.TextRenderer;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.render.RenderTickCounter;
+import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.math.Vec3d;
 
@@ -39,6 +40,25 @@ public class DebrisHud {
             int wy = sh - 90;
             panel(ctx, sw / 2 - ww / 2, wy, ww, 16);
             ctx.drawText(tr, w, sw / 2 - ww / 2 + 8, wy + 4, 0xFFFFAA00, false);
+        }
+
+        // MỤC TIÊU NGHI NGỜ GIẢ MẠO (bảng đỏ, nằm dưới bảng xanh)
+        if (!Debris.fakes.isEmpty()) {
+            List<BlockPos> fk = Debris.fakes;
+            int frows = Math.min(4, fk.size());
+            int fy0 = cl.isEmpty() ? 4 : 4 + 14 + Math.min(4, cl.size()) * 11 + 4;
+            String ftitle = "MỤC TIÊU NGHI NGỜ GIẢ MẠO (" + fk.size() + ")";
+            int fw = Math.max(190, tr.getWidth(ftitle) + 12);
+            ctx.fill(4, fy0, 4 + fw, fy0 + 14 + frows * 11, 0xB0300808);
+            ctx.drawBorder(4, fy0, fw, 14 + frows * 11, 0xFFFF3A3A);
+            ctx.drawText(tr, ftitle, 8, fy0 + 3, 0xFFFF6060, false);
+            Vec3d fme = mc.player.getPos();
+            for (int i = 0; i < frows; i++) {
+                BlockPos fb = fk.get(i);
+                int fd = (int) Vec3d.ofCenter(fb).distanceTo(fme);
+                String fl = (i + 1) + ") " + fb.getX() + " " + fb.getY() + " " + fb.getZ() + "  " + fd + "m";
+                ctx.drawText(tr, fl, 8, fy0 + 15 + i * 11, 0xFFFFB0B0, false);
+            }
         }
 
         if (cl.isEmpty()) return;
