@@ -88,6 +88,7 @@ public class Debris {
         Vec3d pp = mc.player.getPos();
         for (Cluster c : clusters) c.dist = c.center.distanceTo(pp);
         clusters.sort(Comparator.comparingDouble(c -> c.dist));
+        fakes.sort(Comparator.comparingDouble(f -> Vec3d.ofCenter(f).squaredDistanceTo(pp)));
     }
 
     private static void scan(MinecraftClient mc) {
@@ -206,4 +207,4 @@ public class Debris {
             if (mc.world.getFluidState(p.add(x, y, z)).isIn(FluidTags.LAVA)) n++;
         lavaNear = n >= LAVA_WARN;
     }
-    }
+                }
